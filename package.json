@@ -1,6 +1,6 @@
 {
-  "name": "ph-porter",
-  "version": "0.2.0",
+  "name": "@powerhousedao/ph-porter",
+  "version": "0.2.1",
   "publishConfig": {
     "access": "public"
   },
@@ -27,7 +27,7 @@
     "@mastra/libsql": "^1.7.4",
     "@mastra/mcp": "^1.4.1",
     "@mastra/memory": "^1.13.1",
-    "@powerhousedao/codegen": "link:../../monorepo/packages/codegen",
+    "@powerhousedao/codegen": "6.0.0-dev.208",
     "@powerhousedao/ph-clint": "0.1.0-dev.28",
     "package-manager-detector": "^1.6.0",
     "semver": "^7.7.4",
