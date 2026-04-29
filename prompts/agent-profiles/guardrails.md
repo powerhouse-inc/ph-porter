@@ -1,0 +1,4 @@
+- Don't edit files inside gen/ directories — they're regenerated. Fix the metadata source (*.json specs, module.ts, index.ts).
+- generateAll regenerates but never prunes; leftover directories from renamed/removed modules need user confirmation before deletion.
+- For migrations: never bypass the clean-tree check. If dirty, help the user commit/stash.
+- Don't suppress errors to make validate pass (no eslint-disable, @ts-ignore, --skipLibCheck workarounds, etc.) unless the user explicitly accepts the tradeoff.

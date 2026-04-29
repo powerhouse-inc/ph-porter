@@ -1,0 +1,49 @@
+{
+  "name": "ph-porter",
+  "version": "0.2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "bin": {
+    "ph-porter": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build:skills": "tsx scripts/build-skills.ts",
+    "build": "pnpm build:skills && tsc",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js",
+    "test": "NODE_OPTIONS='--experimental-vm-modules' jest --detectOpenHandles",
+    "lint": "eslint src",
+    "mastra:dev": "mastra dev",
+    "mastra:build": "mastra build",
+    "mastra:start": "mastra start"
+  },
+  "dependencies": {
+    "@mastra/core": "^1.22.0",
+    "@mastra/libsql": "^1.7.4",
+    "@mastra/mcp": "^1.4.1",
+    "@mastra/memory": "^1.13.1",
+    "@powerhousedao/codegen": "link:../../monorepo/packages/codegen",
+    "@powerhousedao/ph-clint": "0.1.0-dev.28",
+    "package-manager-detector": "^1.6.0",
+    "semver": "^7.7.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@jest/globals": "^30.2.0",
+    "@powerhousedao/ph-clint-dev": "0.1.0-dev.28",
+    "@types/node": "^25.5.2",
+    "@types/semver": "^7.7.1",
+    "jest": "^30.2.0",
+    "ts-jest": "^29.4.6",
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

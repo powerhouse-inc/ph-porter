@@ -1,0 +1,2 @@
+overrides:
+  '@powerhousedao/codegen': link:../../monorepo/packages/codegen
