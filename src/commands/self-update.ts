@@ -1,6 +1,6 @@
 import { defineCommand } from "@powerhousedao/ph-clint";
 import { execFileSync } from "node:child_process";
-import { CLI_NAME, CLI_VERSION } from "../config.js";
+import { CLI_NAME, CLI_PACKAGE_NAME, CLI_VERSION } from "../config.js";
 import {
     checkLatestVersion,
     clearVersionCache,
@@ -63,7 +63,7 @@ function buildUpdateCommand(
     manager: InstallManager,
     version: string,
 ): { command: string; args: string[] } | null {
-    const target = `${CLI_NAME}@${version}`;
+    const target = `${CLI_PACKAGE_NAME}@${version}`;
     switch (manager) {
         case "npm":
             return { command: "npm", args: ["install", "-g", target] };
@@ -125,7 +125,7 @@ export const selfUpdateCommand = defineCommand({
             const result = await checkLatestVersion({ force: true, distTag: tag });
             if (result.error || !result.latest) {
                 throw new Error(
-                    `Could not resolve ${CLI_NAME}@${tag} from npm: ${result.error ?? "no version returned"}`,
+                    `Could not resolve ${CLI_PACKAGE_NAME}@${tag} from npm: ${result.error ?? "no version returned"}`,
                 );
             }
             target = result.latest;
@@ -155,7 +155,7 @@ export const selfUpdateCommand = defineCommand({
 
         if (install.manager === "npx") {
             out(
-                `[self-update] ph-porter is running via npx/dlx — re-invoke as \`npx ${CLI_NAME}@${tag}\` (or \`pnpm dlx ${CLI_NAME}@${tag}\`) to pick up the new version.\n`,
+                `[self-update] ${CLI_NAME} is running via npx/dlx — re-invoke as \`npx ${CLI_PACKAGE_NAME}@${tag}\` (or \`pnpm dlx ${CLI_PACKAGE_NAME}@${tag}\`) to pick up the new version.\n`,
             );
             return;
         }
@@ -166,10 +166,10 @@ export const selfUpdateCommand = defineCommand({
                 `[self-update] could not detect a global package manager for the running binary.\n`,
             );
             out(`[self-update] run one of the following manually:\n`);
-            out(`  npm install -g ${CLI_NAME}@${target}\n`);
-            out(`  pnpm add -g ${CLI_NAME}@${target}\n`);
-            out(`  yarn global add ${CLI_NAME}@${target}\n`);
-            out(`  bun install -g ${CLI_NAME}@${target}\n`);
+            out(`  npm install -g ${CLI_PACKAGE_NAME}@${target}\n`);
+            out(`  pnpm add -g ${CLI_PACKAGE_NAME}@${target}\n`);
+            out(`  yarn global add ${CLI_PACKAGE_NAME}@${target}\n`);
+            out(`  bun install -g ${CLI_PACKAGE_NAME}@${target}\n`);
             return;
         }
 
@@ -184,7 +184,7 @@ export const selfUpdateCommand = defineCommand({
 
         clearVersionCache();
         out(
-            `[self-update] installed ${CLI_NAME}@${target}. Re-run your command to use the new version.\n`,
+            `[self-update] installed ${CLI_PACKAGE_NAME}@${target}. Re-run your command to use the new version.\n`,
         );
     },
 });

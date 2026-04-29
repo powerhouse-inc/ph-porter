@@ -4,7 +4,7 @@ import { dirname } from "node:path";
 import gtSemver from "semver/functions/gt.js";
 import cleanSemver from "semver/functions/clean.js";
 import validSemver from "semver/functions/valid.js";
-import { CLI_NAME, CLI_VERSION } from "../config.js";
+import { CLI_NAME, CLI_PACKAGE_NAME, CLI_VERSION } from "../config.js";
 
 const REGISTRY_URL = "https://registry.npmjs.org";
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -131,7 +131,7 @@ export async function checkLatestVersion(
 
     try {
         const latest = await fetchLatestFromRegistry(
-            CLI_NAME,
+            CLI_PACKAGE_NAME,
             distTag,
             timeoutMs,
         );
