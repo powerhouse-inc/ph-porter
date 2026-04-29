@@ -14,6 +14,7 @@ import { createAgent } from './agents/agent.js';
 import { migrateCommand } from './commands/migrate.js';
 import { validateCommand } from './commands/validate.js';
 import { selfUpdateCommand } from './commands/self-update.js';
+import { statusCommand } from './commands/status.js';
 // @clint:end imports
 
 export const cli = defineCli({
@@ -24,7 +25,7 @@ export const cli = defineCli({
   secretsSchema,
 
   // @clint:begin commands
-  commands: [migrateCommand, validateCommand, selfUpdateCommand],
+  commands: [migrateCommand, validateCommand, statusCommand, selfUpdateCommand],
   // @clint:end commands
 
   // @clint:begin services
