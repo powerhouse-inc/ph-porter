@@ -4,7 +4,7 @@ description: Use when migrating a Powerhouse Reactor project to a new stack vers
 license: AGPL-3.0-only
 metadata:
   author: Powerhouse
-  version: "0.2.4"
+  version: "0.2.5"
 ---
 
 # ph-porter
