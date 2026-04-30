@@ -23,7 +23,7 @@ const WORKSPACE_VERSIONED_PACKAGES = new Set<string>([
     ...VERSIONED_DEV_DEPENDENCIES,
 ]);
 
-const REQUIRED_SCRIPTS = ["lint:fix", "typecheck", "build"] as const;
+const REQUIRED_SCRIPTS = ["lint:fix", "tsc", "build"] as const;
 const OPTIONAL_SCRIPTS = ["test", "lint"] as const;
 const POWERHOUSE_PREFIX = "@powerhousedao/";
 
@@ -230,6 +230,75 @@ const inputSchema = z.object({
         .optional(),
 });
 
+const gitInfoSchema = z.object({
+    isRepo: z.boolean(),
+    clean: z.boolean().optional(),
+    dirtyFileCount: z.number().int().nonnegative().optional(),
+    branch: z.string().optional(),
+    commit: z.string().optional(),
+    error: z.string().optional(),
+});
+
+const packageManagerSchema = z
+    .object({
+        agent: z.string(),
+        name: z.string(),
+    })
+    .nullable();
+
+const packageJsonSchema = z
+    .object({
+        name: z.string().optional(),
+        version: z.string().optional(),
+    })
+    .nullable();
+
+const powerhouseDepsSchema = z.object({
+    workspaceVersions: z.record(z.string(), z.string()),
+    independentVersions: z.record(z.string(), z.string()),
+    coherent: z.boolean(),
+    uniqueWorkspaceVersions: z.array(z.string()),
+});
+
+const scriptsSchema = z.object({
+    required: z.record(z.enum(REQUIRED_SCRIPTS), z.boolean()),
+    optional: z.record(z.enum(OPTIONAL_SCRIPTS), z.boolean()),
+});
+
+const moduleReportSchema = z.object({
+    name: z.string(),
+    state: z.enum(["ok", "legacy", "mixed", "orphan"]),
+    note: z.string().optional(),
+});
+
+const modulesSchema = z.object({
+    "document-models": z.array(moduleReportSchema),
+    editors: z.array(moduleReportSchema),
+    subgraphs: z.array(moduleReportSchema),
+    processors: z.array(moduleReportSchema),
+});
+
+const versionCheckSchema = z.object({
+    current: z.string(),
+    latest: z.string().nullable(),
+    outdated: z.boolean(),
+    fromCache: z.boolean(),
+    error: z.string().optional(),
+});
+
+const outputSchema = z.object({
+    text: z.string(),
+    cli: z.object({ name: z.string(), version: z.string() }),
+    versionCheck: versionCheckSchema,
+    workdir: z.string(),
+    git: gitInfoSchema,
+    packageManager: packageManagerSchema,
+    packageJson: packageJsonSchema,
+    powerhouseDependencies: powerhouseDepsSchema,
+    scripts: scriptsSchema,
+    modules: modulesSchema,
+});
+
 /**
  * `status` — read-only triage.
  *
@@ -244,9 +313,15 @@ export const statusCommand = defineCommand({
     description:
         "Inspect a Reactor project (read-only): git state, package manager, Powerhouse versions, scripts, and module layout",
     inputSchema,
+    outputSchema,
     async execute(input, context) {
         const workdir = input.workdir || context.workdir;
-        const out = context.stdout;
+        const buffer: string[] = [];
+        const debug = context.log!.debug;
+        const out = (text: string) => {
+            buffer.push(text);
+            debug(text);
+        };
 
         out(`[status] ${CLI_NAME} v${CLI_VERSION}\n`);
         const versionCheck = await checkLatestVersion();
@@ -294,6 +369,22 @@ export const statusCommand = defineCommand({
         );
 
         const pkg = readPackageJson(workdir);
+        const ph = pkg
+            ? collectPowerhouseDeps(pkg)
+            : {
+                  workspaceVersions: {},
+                  independentVersions: {},
+                  coherent: true,
+                  uniqueWorkspaceVersions: [],
+              };
+        const pkgScripts = pkg?.scripts ?? {};
+        const requiredScriptsPresence = Object.fromEntries(
+            REQUIRED_SCRIPTS.map((name) => [name, name in pkgScripts]),
+        ) as Record<(typeof REQUIRED_SCRIPTS)[number], boolean>;
+        const optionalScriptsPresence = Object.fromEntries(
+            OPTIONAL_SCRIPTS.map((name) => [name, name in pkgScripts]),
+        ) as Record<(typeof OPTIONAL_SCRIPTS)[number], boolean>;
+
         out("\n[status] package.json:\n");
         if (!pkg) {
             out("  - missing or unparseable\n");
@@ -301,7 +392,6 @@ export const statusCommand = defineCommand({
             out(`  - name: ${pkg.name ?? "(unset)"}\n`);
             out(`  - version: ${pkg.version ?? "(unset)"}\n`);
 
-            const ph = collectPowerhouseDeps(pkg);
             out("\n[status] Powerhouse dependencies:\n");
             const workspaceNames = Object.keys(ph.workspaceVersions).sort();
             const independentNames = Object.keys(ph.independentVersions).sort();
@@ -325,23 +415,23 @@ export const statusCommand = defineCommand({
                 }
             }
 
-            const scripts = pkg.scripts ?? {};
             out("\n[status] scripts:\n");
             for (const name of REQUIRED_SCRIPTS) {
                 out(
-                    name in scripts
+                    requiredScriptsPresence[name]
                         ? `  - ${name}: present\n`
                         : `  - ${name}: MISSING (validate will skip this step)\n`,
                 );
             }
             for (const name of OPTIONAL_SCRIPTS) {
-                if (name in scripts) out(`  - ${name}: present\n`);
+                if (optionalScriptsPresence[name])
+                    out(`  - ${name}: present\n`);
             }
         }
 
         out("\n[status] modules:\n");
         const moduleSpecs: Array<{
-            label: string;
+            label: "document-models" | "editors" | "subgraphs" | "processors";
             dir: string;
             inspect: (parent: string, name: string) => ModuleReport;
         }> = [
@@ -367,14 +457,21 @@ export const statusCommand = defineCommand({
                     inspectModule(p, n, ["index.ts", "module.ts", "processor.ts"]),
             },
         ];
+        const moduleResults: z.output<typeof modulesSchema> = {
+            "document-models": [],
+            editors: [],
+            subgraphs: [],
+            processors: [],
+        };
         let anyModulesFound = false;
         for (const spec of moduleSpecs) {
             const names = listSubdirs(spec.dir);
-            if (names.length === 0) continue;
+            const reports = names.map((n) => spec.inspect(spec.dir, n));
+            moduleResults[spec.label] = reports;
+            if (reports.length === 0) continue;
             anyModulesFound = true;
-            out(`  ${spec.label}/ (${names.length}):\n`);
-            for (const n of names) {
-                const report = spec.inspect(spec.dir, n);
+            out(`  ${spec.label}/ (${reports.length}):\n`);
+            for (const report of reports) {
                 const tag =
                     report.state === "ok"
                         ? "ok"
@@ -384,12 +481,32 @@ export const statusCommand = defineCommand({
                             ? "MIXED"
                             : "ORPHAN";
                 out(
-                    `    - ${n}: ${tag}${report.note ? ` — ${report.note}` : ""}\n`,
+                    `    - ${report.name}: ${tag}${report.note ? ` — ${report.note}` : ""}\n`,
                 );
             }
         }
         if (!anyModulesFound) {
             out("  - no module directories found\n");
         }
+
+        return {
+            text: buffer.join("").trimEnd(),
+            cli: { name: CLI_NAME, version: CLI_VERSION },
+            versionCheck,
+            workdir,
+            git,
+            packageManager: detected
+                ? { agent: detected.agent, name: detected.name }
+                : null,
+            packageJson: pkg
+                ? { name: pkg.name, version: pkg.version }
+                : null,
+            powerhouseDependencies: ph,
+            scripts: {
+                required: requiredScriptsPresence,
+                optional: optionalScriptsPresence,
+            },
+            modules: moduleResults,
+        };
     },
 });
