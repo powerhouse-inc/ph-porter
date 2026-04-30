@@ -4,7 +4,7 @@ description: Use when migrating a Powerhouse Reactor project to a new stack vers
 license: AGPL-3.0-only
 metadata:
   author: Powerhouse
-  version: "0.2.5"
+  version: "0.2.6"
 ---
 
 ## Installation
@@ -34,20 +34,21 @@ bun  install -g @powerhousedao/ph-porter
 
 ## Modes
 
-- **Migration mode** — user wants to move to a new stack version. Confirm the target version and workdir, ensure clean git tree, run `migrate` (which auto-runs `validate` after install). Fix issues surfaced by the validation.
+- **Migration mode** — user wants to move to a new stack version. Confirm the target version and workdir, ensure clean git tree, run `migrate` (which auto-runs `validate` after install and prints a diff distinguishing new failures from pre-existing ones). Fix the new failures.
 - **Fix mode** — user points at an existing project. Run `validate` directly to surface the current state, then fix what it finds.
 
 ## Workflow
 
-1. Run `validate` (either standalone or via `migrate`'s post-step). It runs `lint:fix`, `tsc`, `build`, and `publint` and prints a per-step summary.
-2. For each failed step, read the captured output and fix the root cause:
+1. Run `validate` (either standalone or via `migrate`'s post-step). It runs `lint:fix`, `tsc`, `build`, and `publint` and prints a per-step summary. After `migrate`, the summary also includes a diff that labels each failure as `NEW FAILURE`, `pre-existing`, or `fixed`.
+2. Focus on `NEW FAILURE` items — those were introduced by the migration. Leave `pre-existing` failures alone unless the user asks.
+3. For each new-failure step, read the captured output and fix the root cause:
     - **lint:fix** already auto-fixes what it can; remaining issues are usually rule violations needing source edits.
     - **typecheck** — edit the offending source files to satisfy the types. Don't add `// @ts-ignore` or `any` to silence errors.
     - **build** — usually downstream of typecheck or import-path issues; resolve the underlying cause, not the build flag.
     - **publint** — almost always `package.json` issues (`exports`, `files`, `main`/`types` mismatch).
-3. After fixes, re-run `validate`. Repeat until it's green or the remaining issues genuinely need user input.
-4. Verify changed files and look for potentially unwanted deletions.
-5. Summarize what was fixed and what (if anything) needs the user's call.
+4. After fixes, re-run `validate`. Repeat until no new failures remain or the remainder genuinely needs user input.
+5. Verify changed files and look for potentially unwanted deletions.
+6. Summarize what was fixed, what (if anything) needs the user's call, and call out any pre-existing failures so the user knows they were already there.
 
 ## Examples
 
@@ -58,9 +59,9 @@ User says: "Migrate this reactor project to the most recent version."
 Actions:
 1. Run `ph-porter status` to record starting state and detect a dirty git tree.
 2. If dirty, ask the user to commit/stash. Do not bypass the clean-tree check.
-3. Run `ph-porter migrate --version latest`. The CLI auto-runs install + validate.
-4. Read the validate summary; fix any `FAILED` step at the root cause.
-5. Re-run `ph-porter validate` until green.
+3. Run `ph-porter migrate --version latest`. The CLI auto-runs install + validate, and prints a diff labeling each failure as new vs. pre-existing.
+4. Fix any step labeled `NEW FAILURE` at the root cause. Leave `pre-existing` failures alone unless the user asks.
+5. Re-run `ph-porter validate` until no new failures remain.
 
 ### Example 2: Fix an existing project
 
