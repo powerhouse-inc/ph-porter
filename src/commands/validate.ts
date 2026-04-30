@@ -6,6 +6,14 @@ import { detect } from "package-manager-detector/detect";
 import type { ResolvedCommand } from "package-manager-detector";
 import z from "zod";
 
+export const VALIDATION_STEPS = [
+    "lint:fix",
+    "typecheck",
+    "build",
+    "publint",
+] as const;
+export type ValidationStepName = (typeof VALIDATION_STEPS)[number];
+
 export interface ValidationStep {
     name: string;
     command?: string;
@@ -100,6 +108,7 @@ export async function runValidation(
         ) => Promise<{ success: boolean; output: string }>;
         log?: { debug?: (msg: string) => void };
     },
+    options?: { steps?: readonly ValidationStepName[] },
 ): Promise<ValidationResult> {
     const detected = await detect({ cwd: workdir });
     if (!detected) {
@@ -117,8 +126,9 @@ export async function runValidation(
     }
 
     const scripts = getProjectScripts(workdir);
+    const requested = options?.steps ? new Set(options.steps) : null;
     const stepsConfig: Array<{
-        name: string;
+        name: ValidationStepName;
         type: "run" | "execute" | "execute-local";
         args: string[];
         skipReason?: string;
@@ -152,6 +162,7 @@ export async function runValidation(
 
     const steps: ValidationStep[] = [];
     for (const cfg of stepsConfig) {
+        if (requested && !requested.has(cfg.name)) continue;
         const resolved = cfg.skipReason
             ? null
             : resolveCommand(detected.agent, cfg.type, cfg.args);
@@ -195,6 +206,13 @@ const inputSchema = z.object({
         .string()
         .describe("The working directory of the project to validate")
         .optional(),
+    steps: z
+        .array(z.enum(VALIDATION_STEPS))
+        .nonempty()
+        .describe(
+            `Subset of validation steps to run. Defaults to all: ${VALIDATION_STEPS.join(", ")}.`,
+        )
+        .optional(),
 });
 
 /**
@@ -208,7 +226,9 @@ export const validateCommand = defineCommand({
     inputSchema,
     async execute(input, context) {
         const workdir = input.workdir || context.workdir;
-        const result = await runValidation(workdir, context);
+        const result = await runValidation(workdir, context, {
+            steps: input.steps,
+        });
         if (!result.success) {
             throw new Error(
                 `Validation failed: ${result.failed.map((s) => s.name).join(", ")}`,
