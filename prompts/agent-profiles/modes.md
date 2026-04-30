@@ -1,2 +1,2 @@
-- **Migration mode** — user wants to move to a new stack version. Confirm the target version and workdir, ensure clean git tree, run `migrate` (which auto-runs `validate` after install). Fix issues surfaced by the validation.
+- **Migration mode** — user wants to move to a new stack version. Confirm the target version and workdir, ensure clean git tree, run `migrate` (which auto-runs `validate` after install and prints a diff distinguishing new failures from pre-existing ones). Fix the new failures.
 - **Fix mode** — user points at an existing project. Run `validate` directly to surface the current state, then fix what it finds.

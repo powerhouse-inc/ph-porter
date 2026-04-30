@@ -5,9 +5,9 @@ User says: "Migrate this reactor project to the most recent version."
 Actions:
 1. Run `ph-porter status` to record starting state and detect a dirty git tree.
 2. If dirty, ask the user to commit/stash. Do not bypass the clean-tree check.
-3. Run `ph-porter migrate --version latest`. The CLI auto-runs install + validate.
-4. Read the validate summary; fix any `FAILED` step at the root cause.
-5. Re-run `ph-porter validate` until green.
+3. Run `ph-porter migrate --version latest`. The CLI auto-runs install + validate, and prints a diff labeling each failure as new vs. pre-existing.
+4. Fix any step labeled `NEW FAILURE` at the root cause. Leave `pre-existing` failures alone unless the user asks.
+5. Re-run `ph-porter validate` until no new failures remain.
 
 ### Example 2: Fix an existing project
 

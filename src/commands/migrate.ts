@@ -285,15 +285,11 @@ export const migrateCommand = defineCommand({
       // Capture a pre-migration validation snapshot before mutating anything.
       // Used by the post-migration diff below (and any later
       // `validate --diff __pre_migrate`) to separate new failures from
-      // pre-existing ones. Best-effort — a hiccup here never breaks migrate.
-      // The pre-run is silent: we suppress its per-step headers and summary
-      // by handing it a no-op stdout. Failing steps still capture
-      // stdout/stderr into the saved result for later `--show`.
+      // pre-existing ones. Best-effort and silent on success — only surfaces
+      // a warning if capture itself fails. Failing validation steps still
+      // capture stdout/stderr into the saved result for later `--show`.
       let preMigrateCaptured = false;
       try {
-          context.stdout(
-              `\nCapturing pre-migration validation snapshot (saved as "${PRE_MIGRATE_RESULT_NAME}")...\n`,
-          );
           const preResult = await runValidation(
               workdir,
               { stdout: () => {}, log: context.log },
@@ -332,7 +328,16 @@ export const migrateCommand = defineCommand({
               const preEntry = readResult(workdir, PRE_MIGRATE_RESULT_NAME);
               if (preEntry) {
                   const diff = diffAgainst(preEntry, postResult);
-                  context.stdout("\n" + formatDiff(diff));
+                  // Only print the diff when it carries signal — i.e. at
+                  // least one step changed category from saved. When every
+                  // step is "unchanged" the diff is noise on top of the
+                  // existing validate summary.
+                  const meaningful = diff.diffs.some(
+                      (d) => d.category !== "unchanged",
+                  );
+                  if (meaningful) {
+                      context.stdout("\n" + formatDiff(diff));
+                  }
               }
           }
 
