@@ -1,6 +1,6 @@
 ---
 name: ph-porter
-description: Use when migrating a Powerhouse Reactor project to a new stack version, validating a Reactor project (runs lint:fix, tsc, build, publint), or inspecting project state. Triggers on "migrate reactor", "powerhouse migrate", "validate reactor project", "ph-porter ...", or any project whose package.json depends on `@powerhousedao/*` packages. Do NOT use for non-Powerhouse projects, generic TypeScript dependency bumps, or general npm publish workflows.
+description: Use when migrating a Powerhouse Reactor project to a new stack version, validating a Reactor project (runs lint:fix, tsc, build, publint), or inspecting project state. Triggers on "migrate reactor", "powerhouse migrate", "validate reactor project", "ph-porter ...". Do NOT use for non-Powerhouse projects, generic dependency bumps, or general npm publish workflows.
 license: AGPL-3.0-only
 metadata:
   author: Powerhouse
@@ -10,13 +10,6 @@ metadata:
 # ph-porter
 
 CLI for migrating Powerhouse Reactor projects between stack versions and surfacing/fixing the issues a migration leaves behind.
-
-## Critical
-
-- Don't edit files inside `gen/` directories — they're regenerated. Fix the metadata source (`*.json` specs, `module.ts`, `index.ts`).
-- `generateAll` regenerates but never prunes; leftover directories from renamed/removed modules need user confirmation before deletion.
-- For migrations: never bypass the clean-tree check. If dirty, help the user commit/stash.
-- Don't suppress errors to make `validate` pass (no `eslint-disable`, `@ts-ignore`, `--skipLibCheck` workarounds, etc.) unless the user explicitly accepts the tradeoff.
 
 ## Installation
 
@@ -35,6 +28,13 @@ npm  install -g @powerhousedao/ph-porter
 pnpm add     -g @powerhousedao/ph-porter
 bun  install -g @powerhousedao/ph-porter
 ```
+
+## Critical
+
+- Don't edit files inside `gen/` directories — they're regenerated. Fix the metadata source (`*.json` specs, `module.ts`, `index.ts`).
+- `generateAll` regenerates but never prunes; leftover directories from renamed/removed modules need user confirmation before deletion.
+- For migrations: never bypass the clean-tree check. If dirty, help the user commit/stash.
+- Don't suppress errors to make `validate` pass (no `eslint-disable`, `@ts-ignore`, `--skipLibCheck` workarounds, etc.) unless the user explicitly accepts the tradeoff.
 
 ## Modes
 
@@ -57,12 +57,12 @@ bun  install -g @powerhousedao/ph-porter
 
 ### Example 1: Migrate to a new stack version
 
-User says: "Migrate this reactor project to staging."
+User says: "Migrate this reactor project to the most recent version."
 
 Actions:
 1. Run `ph-porter status` to record starting state and detect a dirty git tree.
 2. If dirty, ask the user to commit/stash. Do not bypass the clean-tree check.
-3. Run `ph-porter migrate staging`. The CLI auto-runs install + validate.
+3. Run `ph-porter migrate --version latest`. The CLI auto-runs install + validate.
 4. Read the validate summary; fix any `FAILED` step at the root cause.
 5. Re-run `ph-porter validate` until green.
 

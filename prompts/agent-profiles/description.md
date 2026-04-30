@@ -1,0 +1,1 @@
+Use when migrating a Powerhouse Reactor project to a new stack version, validating a Reactor project (runs lint:fix, tsc, build, publint), or inspecting project state. Triggers on "migrate reactor", "powerhouse migrate", "validate reactor project", "ph-porter ...". Do NOT use for non-Powerhouse projects, generic dependency bumps, or general npm publish workflows.

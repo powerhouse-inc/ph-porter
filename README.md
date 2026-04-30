@@ -1,6 +1,6 @@
-# ph-porter
+# @powerhousedao/ph-porter
 
-CLI for migrating [Powerhouse Reactor](https://docs.powerhouse.io) projects between stack versions.
+CLI for migrating Powerhouse Reactor projects between stack versions and surfacing/fixing the issues a migration leaves behind.
 
 ## Quick start
 
@@ -8,7 +8,7 @@ No install needed — invoke directly via your package manager:
 
 ```sh
 cd /path/to/your/reactor-project
-npx @powerhousedao/ph-porter migrate latest # migrate to latest
+npx @powerhousedao/ph-porter migrate --version latest # migrate to latest
 ```
 
 If you'd rather have a persistent install:

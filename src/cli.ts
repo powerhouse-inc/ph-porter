@@ -41,12 +41,13 @@ export const cli = defineCli({
     artifacts: [path.join(CLI_ROOT, 'gen', 'skills'), path.join(CLI_ROOT, 'dist', 'gen', 'skills')],
     agents: {
       'ph-porter-agent': {
-        name: 'role',
+        name: 'description',
         sections: [
-          'role.md',
+          'description.md',
+          'critical.md',
           'modes.md',
           'workflow.md',
-          'guardrails.md',
+          'examples.md',
         ],
         skills: [],
       },

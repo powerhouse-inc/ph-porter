@@ -1,6 +1,6 @@
 {
   "name": "@powerhousedao/ph-porter",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "publishConfig": {
     "access": "public"
   },
@@ -8,12 +8,14 @@
   "bin": {
     "ph-porter": "./dist/main.js"
   },
+  "description": "CLI for migrating Powerhouse Reactor projects between stack versions and surfacing/fixing the issues a migration leaves behind.",
   "files": [
     "dist"
   ],
   "scripts": {
     "build:skills": "tsx scripts/build-skills.ts",
-    "build": "pnpm build:skills && tsc",
+    "build:portable-skill": "tsx scripts/build-portable-skill.ts",
+    "build": "pnpm build:skills && pnpm build:portable-skill && tsc",
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
     "test": "NODE_OPTIONS='--experimental-vm-modules' jest --detectOpenHandles",
