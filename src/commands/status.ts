@@ -1,4 +1,8 @@
 import { defineCommand } from "@powerhousedao/ph-clint";
+import {
+    VERSIONED_DEPENDENCIES,
+    VERSIONED_DEV_DEPENDENCIES,
+} from "@powerhousedao/shared/clis";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
@@ -6,6 +10,18 @@ import { detect } from "package-manager-detector/detect";
 import z from "zod";
 import { CLI_NAME, CLI_VERSION } from "../config.js";
 import { checkLatestVersion } from "../services/update-check.js";
+
+/**
+ * Packages whose version is bumped together by a `migrate` run. Sourced from
+ * `@powerhousedao/shared/clis` so this list cannot drift from the migration
+ * tool's own definition. Only these are subject to the coherence check —
+ * other `@powerhousedao/*` packages (e.g. `document-engineering`) release
+ * independently and are reported for visibility but not flagged.
+ */
+const WORKSPACE_VERSIONED_PACKAGES = new Set<string>([
+    ...VERSIONED_DEPENDENCIES,
+    ...VERSIONED_DEV_DEPENDENCIES,
+]);
 
 const REQUIRED_SCRIPTS = ["lint:fix", "typecheck", "build"] as const;
 const OPTIONAL_SCRIPTS = ["test", "lint"] as const;
@@ -115,21 +131,36 @@ function checkGit(workdir: string): GitInfo {
 }
 
 interface PowerhouseDeps {
-    versions: Record<string, string>;
+    /** Packages expected to share the workspace stack version. */
+    workspaceVersions: Record<string, string>;
+    /** Packages on the `@powerhousedao/*` namespace that release on their
+     *  own cadence — reported for visibility but excluded from the
+     *  coherence check. */
+    independentVersions: Record<string, string>;
     coherent: boolean;
-    uniqueVersions: string[];
+    uniqueWorkspaceVersions: string[];
 }
 
 function collectPowerhouseDeps(pkg: PackageJson): PowerhouseDeps {
-    const versions: Record<string, string> = {};
+    const workspaceVersions: Record<string, string> = {};
+    const independentVersions: Record<string, string> = {};
     for (const block of [pkg.dependencies, pkg.devDependencies]) {
         if (!block) continue;
         for (const [name, version] of Object.entries(block)) {
-            if (name.startsWith(POWERHOUSE_PREFIX)) versions[name] = version;
+            if (WORKSPACE_VERSIONED_PACKAGES.has(name)) {
+                workspaceVersions[name] = version;
+            } else if (name.startsWith(POWERHOUSE_PREFIX)) {
+                independentVersions[name] = version;
+            }
         }
     }
-    const unique = [...new Set(Object.values(versions))];
-    return { versions, coherent: unique.length <= 1, uniqueVersions: unique };
+    const unique = [...new Set(Object.values(workspaceVersions))];
+    return {
+        workspaceVersions,
+        independentVersions,
+        coherent: unique.length <= 1,
+        uniqueWorkspaceVersions: unique,
+    };
 }
 
 interface ModuleReport {
@@ -271,19 +302,27 @@ export const statusCommand = defineCommand({
             out(`  - version: ${pkg.version ?? "(unset)"}\n`);
 
             const ph = collectPowerhouseDeps(pkg);
-            out("\n[status] @powerhousedao/* dependencies:\n");
-            const phNames = Object.keys(ph.versions).sort();
-            if (phNames.length === 0) {
+            out("\n[status] Powerhouse dependencies:\n");
+            const workspaceNames = Object.keys(ph.workspaceVersions).sort();
+            const independentNames = Object.keys(ph.independentVersions).sort();
+            if (workspaceNames.length === 0 && independentNames.length === 0) {
                 out("  - none — is this a Powerhouse project?\n");
             } else {
-                for (const name of phNames) {
-                    out(`  - ${name}: ${ph.versions[name]}\n`);
+                for (const name of workspaceNames) {
+                    out(`  - ${name}: ${ph.workspaceVersions[name]}\n`);
                 }
-                out(
-                    ph.coherent
-                        ? "  - version coherence: ok\n"
-                        : `  - version coherence: MISMATCH (${ph.uniqueVersions.join(", ")}) — possible partial migration\n`,
-                );
+                for (const name of independentNames) {
+                    out(
+                        `  - ${name}: ${ph.independentVersions[name]} (independent release)\n`,
+                    );
+                }
+                if (workspaceNames.length > 0) {
+                    out(
+                        ph.coherent
+                            ? "  - version coherence: ok\n"
+                            : `  - version coherence: MISMATCH (${ph.uniqueWorkspaceVersions.join(", ")}) — possible partial migration\n`,
+                    );
+                }
             }
 
             const scripts = pkg.scripts ?? {};

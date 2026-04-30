@@ -27,8 +27,9 @@
     "@mastra/libsql": "^1.7.4",
     "@mastra/mcp": "^1.4.1",
     "@mastra/memory": "^1.13.1",
-    "@powerhousedao/codegen": "6.0.0-dev.208",
+    "@powerhousedao/codegen": "6.0.2-staging.4",
     "@powerhousedao/ph-clint": "0.1.0-dev.28",
+    "@powerhousedao/shared": "6.0.2-staging.4",
     "package-manager-detector": "^1.6.0",
     "semver": "^7.7.4",
     "zod": "^4.3.6"
