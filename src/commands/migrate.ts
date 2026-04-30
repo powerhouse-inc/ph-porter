@@ -16,6 +16,9 @@ import { runValidation } from "./validate.js";
 //     type MigrationPhase,
 // } from "../services/migration-log.js";
 
+const PH_CLI_PACKAGE = "@powerhousedao/ph-cli";
+const NPM_REGISTRY_URL = "https://registry.npmjs.org";
+
 /**
  * Accept either a clean semver (`"1.2.3"`, `"v1.2.3"`) or a dist-tag
  * (`"latest"`, `"staging"`, `"dev"`, `"production"`, …). Dist-tags are passed
@@ -30,6 +33,64 @@ function normalizeVersion(input: string): string {
     const cleaned = cleanSemver(trimmed);
     if (cleaned && validSemver(cleaned)) return cleaned;
     return trimmed;
+}
+
+interface PackageManifest {
+    "dist-tags": Record<string, string>;
+    versions: Record<string, unknown>;
+}
+
+async function fetchPackageManifest(
+    pkgName: string,
+    timeoutMs = 8000,
+): Promise<PackageManifest> {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const res = await fetch(
+            `${NPM_REGISTRY_URL}/${encodeURIComponent(pkgName)}`,
+            { signal: ctrl.signal, headers: { accept: "application/json" } },
+        );
+        if (!res.ok) {
+            throw new Error(
+                `npm registry returned ${res.status} ${res.statusText} for ${pkgName}`,
+            );
+        }
+        return (await res.json()) as PackageManifest;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+function formatAvailableVersions(manifest: PackageManifest): string {
+    const tagLines = Object.entries(manifest["dist-tags"]).map(
+        ([tag, version]) => `  ${tag} -> ${version}`,
+    );
+    const recent = Object.keys(manifest.versions).slice(-10).reverse();
+    return [
+        "Available dist-tags:",
+        ...tagLines,
+        "",
+        "Recent versions:",
+        ...recent.map((v) => `  ${v}`).slice(0, 4),
+    ].join("\n");
+}
+
+async function assertVersionExists(version: string): Promise<void> {
+    const manifest = await fetchPackageManifest(PH_CLI_PACKAGE);
+    const isSemver = Boolean(validSemver(version));
+
+    if (isSemver) {
+        if (version in manifest.versions) return;
+        throw new Error(
+            `Version ${version} was not found for ${PH_CLI_PACKAGE}.\n\n${formatAvailableVersions(manifest)}`,
+        );
+    }
+
+    if (version in manifest["dist-tags"]) return;
+    throw new Error(
+        `dist-tag "${version}" was not found for ${PH_CLI_PACKAGE}.\n\n${formatAvailableVersions(manifest)}`,
+    );
 }
 
 function getProjectPhCliVersion(workdir: string): string | undefined {
@@ -77,6 +138,12 @@ async function runInstall(
 const inputSchema = z.object({
     version: z.string().describe("The version to migrate to, e.g. '1.0.0', 'latest', or a dist-tag"),
     workdir: z.string().describe("The working directory of the project to do the migration").optional(),
+    force: z
+        .boolean()
+        .describe(
+            "Skip the clean-working-tree check and migrate even when the project has uncommitted changes.",
+        )
+        .optional(),
 });
 
 /**
@@ -157,10 +224,17 @@ export const migrateCommand = defineCommand({
           encoding: "utf8",
       });
       if (status.trim().length > 0) {
-          throw new Error(
-              `Uncommitted changes detected in ${workdir}. Commit or stash them before migrating.`,
+          if (!input.force) {
+              throw new Error(
+                  `Uncommitted changes detected in ${workdir}. Commit or stash them before migrating, or pass --force to override.`,
+              );
+          }
+          context.stdout(
+              `Warning: uncommitted changes detected in ${workdir}. Continuing because --force was set.\n`,
           );
       }
+
+      await assertVersionExists(version);
 
       const currentVersion = getProjectPhCliVersion(workdir);
       if (currentVersion) {
