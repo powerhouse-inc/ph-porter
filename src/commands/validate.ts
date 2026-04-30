@@ -1,10 +1,20 @@
 import { defineCommand } from "@powerhousedao/ph-clint";
+import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCommand } from "package-manager-detector/commands";
 import { detect } from "package-manager-detector/detect";
 import type { ResolvedCommand } from "package-manager-detector";
 import z from "zod";
+import {
+    diffAgainst,
+    formatDiff,
+    formatResultList,
+    formatSavedResult,
+    listResults,
+    readResult,
+    writeResult,
+} from "../services/validation-results.js";
 
 export const VALIDATION_STEPS = [
     "lint:fix",
@@ -21,6 +31,59 @@ export interface ValidationStep {
     skipped: boolean;
     skipReason?: string;
     durationMs: number;
+    /**
+     * Captured stdout / stderr from the step. Saved for failed steps only —
+     * passing steps leave both undefined to keep saved-result files small.
+     * Each stream is truncated to STEP_OUTPUT_MAX_BYTES with a trailing
+     * `… (truncated …)` marker when it overflows. The streams are *not*
+     * forwarded to the user's terminal during the run; if you want to read
+     * them, look at the persisted validation result.
+     */
+    stdout?: string;
+    stderr?: string;
+}
+
+const STEP_OUTPUT_MAX_BYTES = 64 * 1024;
+
+function truncateOutput(output: string): string {
+    if (output.length <= STEP_OUTPUT_MAX_BYTES) return output;
+    const head = output.slice(0, STEP_OUTPUT_MAX_BYTES);
+    return `${head}\n… (truncated, ${output.length - STEP_OUTPUT_MAX_BYTES} bytes omitted)\n`;
+}
+
+async function spawnAndCapture(
+    command: string,
+    args: readonly string[],
+    cwd: string,
+    options?: { echo?: boolean },
+): Promise<{ success: boolean; stdout: string; stderr: string }> {
+    return new Promise((resolve) => {
+        const child = spawn(command, [...args], {
+            cwd,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdoutBuf = "";
+        let stderrBuf = "";
+        child.stdout.on("data", (chunk: Buffer) => {
+            stdoutBuf += chunk.toString();
+            if (options?.echo) process.stdout.write(chunk);
+        });
+        child.stderr.on("data", (chunk: Buffer) => {
+            stderrBuf += chunk.toString();
+            if (options?.echo) process.stderr.write(chunk);
+        });
+        child.on("error", (err) => {
+            stderrBuf += `\n[validate] failed to spawn process: ${err.message}\n`;
+            resolve({ success: false, stdout: stdoutBuf, stderr: stderrBuf });
+        });
+        child.on("close", (code) => {
+            resolve({
+                success: code === 0,
+                stdout: stdoutBuf,
+                stderr: stderrBuf,
+            });
+        });
+    });
 }
 
 export interface ValidationResult {
@@ -51,14 +114,11 @@ interface RunStepOptions {
     resolved: ResolvedCommand | null;
     skipReason?: string;
     stdout: (msg: string) => void;
-    runProcess: (
-        command: string,
-        opts: { cwd: string; label?: string },
-    ) => Promise<{ success: boolean; output: string }>;
+    verbose?: boolean;
 }
 
 async function runStep(opts: RunStepOptions): Promise<ValidationStep> {
-    const { name, workdir, resolved, skipReason, stdout, runProcess } = opts;
+    const { name, workdir, resolved, skipReason, stdout, verbose } = opts;
     if (!resolved || skipReason) {
         stdout(`\n[validate] Skipping ${name}: ${skipReason ?? "no command resolved"}\n`);
         return {
@@ -72,16 +132,18 @@ async function runStep(opts: RunStepOptions): Promise<ValidationStep> {
     const command = formatCommand(resolved);
     stdout(`\n[validate] ${name}: ${command}\n`);
     const startedAt = Date.now();
-    const { success } = await runProcess(command, {
-        cwd: workdir,
-        label: `validate:${name}`,
-    });
+    const { success, stdout: stdoutBuf, stderr: stderrBuf } =
+        await spawnAndCapture(resolved.command, resolved.args, workdir, {
+            echo: verbose,
+        });
     return {
         name,
         command,
         success,
         skipped: false,
         durationMs: Date.now() - startedAt,
+        stdout: success ? undefined : truncateOutput(stdoutBuf),
+        stderr: success ? undefined : truncateOutput(stderrBuf),
     };
 }
 
@@ -102,13 +164,12 @@ export async function runValidation(
     workdir: string,
     context: {
         stdout: (msg: string) => void;
-        runProcess: (
-            command: string,
-            opts: { cwd: string; label?: string },
-        ) => Promise<{ success: boolean; output: string }>;
         log?: { debug?: (msg: string) => void };
     },
-    options?: { steps?: readonly ValidationStepName[] },
+    options?: {
+        steps?: readonly ValidationStepName[];
+        verbose?: boolean;
+    },
 ): Promise<ValidationResult> {
     const detected = await detect({ cwd: workdir });
     if (!detected) {
@@ -173,7 +234,7 @@ export async function runValidation(
                 resolved,
                 skipReason: cfg.skipReason,
                 stdout: context.stdout,
-                runProcess: context.runProcess,
+                verbose: options?.verbose,
             }),
         );
     }
@@ -213,6 +274,36 @@ const inputSchema = z.object({
             `Subset of validation steps to run. Defaults to all: ${VALIDATION_STEPS.join(", ")}.`,
         )
         .optional(),
+    save: z
+        .string()
+        .describe(
+            "Save the validation result under .ph/ph-porter/results/<name>.json so a later --diff can compare against it.",
+        )
+        .optional(),
+    diff: z
+        .string()
+        .describe(
+            "Compare the validation result against a previously saved result with the given name.",
+        )
+        .optional(),
+    list: z
+        .boolean()
+        .describe(
+            "List all saved validation results for this project (newest first) with their metadata.",
+        )
+        .optional(),
+    show: z
+        .string()
+        .describe(
+            "Print a previously saved validation result by name — metadata plus each step's captured stdout/stderr. Combine with --steps to filter to specific steps.",
+        )
+        .optional(),
+    verbose: z
+        .boolean()
+        .describe(
+            "Stream each step's stdout and stderr to the terminal as the step runs. Off by default — captured output is still captured in the saved validation result regardless.",
+        )
+        .optional(),
 });
 
 /**
@@ -226,9 +317,60 @@ export const validateCommand = defineCommand({
     inputSchema,
     async execute(input, context) {
         const workdir = input.workdir || context.workdir;
+
+        if (input.list) {
+            context.stdout(formatResultList(listResults(workdir)));
+            return;
+        }
+
+        if (input.show) {
+            const entry = readResult(workdir, input.show);
+            if (!entry) {
+                throw new Error(
+                    `No saved result named "${input.show}" under .ph/ph-porter/results/. Use --list to see available names.`,
+                );
+            }
+            context.stdout(formatSavedResult(entry, { steps: input.steps }));
+            return;
+        }
+
         const result = await runValidation(workdir, context, {
             steps: input.steps,
+            verbose: input.verbose,
         });
+
+        if (input.save) {
+            const { name, file } = writeResult(workdir, input.save, result, {
+                requestedSteps: input.steps,
+            });
+            context.stdout(
+                `[validate] Saved validation result "${name}" to ${file}\n`,
+            );
+        }
+
+        if (input.diff) {
+            const entry = readResult(workdir, input.diff);
+            if (!entry) {
+                context.stdout(
+                    `[validate] --diff: no saved result named "${input.diff}" under .ph/ph-porter/results/. Run with --save first, or check available names with --list.\n`,
+                );
+                if (!result.success) {
+                    throw new Error(
+                        `Validation failed: ${result.failed.map((s) => s.name).join(", ")}`,
+                    );
+                }
+                return;
+            }
+            const diff = diffAgainst(entry, result);
+            context.stdout("\n" + formatDiff(diff));
+            if (diff.newFailures.length > 0) {
+                throw new Error(
+                    `Validation failed (vs "${entry.name}"): ${diff.newFailures.map((d) => d.name).join(", ")}`,
+                );
+            }
+            return;
+        }
+
         if (!result.success) {
             throw new Error(
                 `Validation failed: ${result.failed.map((s) => s.name).join(", ")}`,

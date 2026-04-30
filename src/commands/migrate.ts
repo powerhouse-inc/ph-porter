@@ -1,6 +1,6 @@
 import { migrate } from "@powerhousedao/codegen";
 import { defineCommand } from "@powerhousedao/ph-clint";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCommand } from "package-manager-detector/commands";
@@ -9,6 +9,23 @@ import z from "zod";
 import validSemver from "semver/functions/valid.js";
 import cleanSemver from "semver/functions/clean.js";
 import { runValidation } from "./validate.js";
+import {
+    diffAgainst,
+    formatDiff,
+    readResult,
+    writeResult,
+} from "../services/validation-results.js";
+
+/**
+ * Reserved names under which `migrate` auto-saves validation snapshots.
+ *  - `__pre_migrate`: captured before any mutation. Lets `--diff` distinguish
+ *    new failures from pre-existing ones.
+ *  - `__post_migrate`: captured after migration + install + validation. Lets
+ *    the agent (or a human) inspect the exact stdout/stderr that triggered
+ *    each remaining failure via `validate --show __post_migrate`.
+ */
+const PRE_MIGRATE_RESULT_NAME = "__pre_migrate";
+const POST_MIGRATE_RESULT_NAME = "__post_migrate";
 // import {
 //     logMigrationFailure,
 //     logMigrationStart,
@@ -129,10 +146,32 @@ async function runInstall(
     stdout(
         `Detected ${detected.agent}. Running \`${resolved.command} ${resolved.args.join(" ")}\` in ${workdir}...\n`,
     );
-    execFileSync(resolved.command, resolved.args, {
-        cwd: workdir,
-        stdio: "inherit",
-    });
+    // Capture rather than inherit — install output is noisy and rarely useful
+    // unless install actually fails. On failure we replay the captured output
+    // so the user can see what broke.
+    const captured = await new Promise<{ exit: number; output: string }>(
+        (resolve, reject) => {
+            const child = spawn(resolved.command, resolved.args, {
+                cwd: workdir,
+                stdio: ["ignore", "pipe", "pipe"],
+            });
+            let buf = "";
+            child.stdout.on("data", (c: Buffer) => {
+                buf += c.toString();
+            });
+            child.stderr.on("data", (c: Buffer) => {
+                buf += c.toString();
+            });
+            child.on("error", reject);
+            child.on("close", (code) => resolve({ exit: code ?? 1, output: buf }));
+        },
+    );
+    if (captured.exit !== 0) {
+        stdout(captured.output);
+        throw new Error(
+            `\`${resolved.command} ${resolved.args.join(" ")}\` exited with code ${captured.exit}`,
+        );
+    }
 }
 
 const inputSchema = z.object({
@@ -243,6 +282,31 @@ export const migrateCommand = defineCommand({
           );
       }
 
+      // Capture a pre-migration validation snapshot before mutating anything.
+      // Used by the post-migration diff below (and any later
+      // `validate --diff __pre_migrate`) to separate new failures from
+      // pre-existing ones. Best-effort — a hiccup here never breaks migrate.
+      // The pre-run is silent: we suppress its per-step headers and summary
+      // by handing it a no-op stdout. Failing steps still capture
+      // stdout/stderr into the saved result for later `--show`.
+      let preMigrateCaptured = false;
+      try {
+          context.stdout(
+              `\nCapturing pre-migration validation snapshot (saved as "${PRE_MIGRATE_RESULT_NAME}")...\n`,
+          );
+          const preResult = await runValidation(
+              workdir,
+              { stdout: () => {}, log: context.log },
+          );
+          writeResult(workdir, PRE_MIGRATE_RESULT_NAME, preResult);
+          preMigrateCaptured = true;
+      } catch (err) {
+          context.stdout(
+              `Warning: failed to capture pre-migration snapshot: ${(err as Error).message}\n`,
+          );
+      }
+
+
       const startedAt = Date.now();
       context.log?.debug(`Starting migration of ${workdir} from version ${currentVersion} to ${version}`);
       try {
@@ -252,7 +316,49 @@ export const migrateCommand = defineCommand({
           context.log?.debug(`Migration completed in ${Date.now() - startedAt}ms`);
 
           context.stdout(`\nRunning post-migration validation...\n`);
-          await runValidation(workdir, context);
+          const postResult = await runValidation(workdir, context);
+
+          // Save the post-migration result so the agent can later inspect
+          // captured stdout/stderr for each step via `validate --show`.
+          try {
+              writeResult(workdir, POST_MIGRATE_RESULT_NAME, postResult);
+          } catch (err) {
+              context.stdout(
+                  `Warning: failed to save post-migration snapshot: ${(err as Error).message}\n`,
+              );
+          }
+
+          if (preMigrateCaptured) {
+              const preEntry = readResult(workdir, PRE_MIGRATE_RESULT_NAME);
+              if (preEntry) {
+                  const diff = diffAgainst(preEntry, postResult);
+                  context.stdout("\n" + formatDiff(diff));
+              }
+          }
+
+          // Tell the agent / user how to actually read what failed.
+          const failingStepNames = postResult.failed
+              .map((s) => s.name)
+              .join(", ");
+          if (postResult.failed.length > 0) {
+              const stepsArg =
+                  postResult.failed.length === 1
+                      ? ` --steps ${postResult.failed[0].name}`
+                      : "";
+              context.stdout(
+                  [
+                      "",
+                      `[validate] ${postResult.failed.length} step(s) failed: ${failingStepNames}.`,
+                      "To see the captured stdout/stderr for failing steps, run:",
+                      `  ph-porter validate --show ${POST_MIGRATE_RESULT_NAME}${stepsArg}`,
+                      "To compare against the pre-migration snapshot:",
+                      `  ph-porter validate --show ${PRE_MIGRATE_RESULT_NAME}${stepsArg}`,
+                      "Or list every saved snapshot with:",
+                      "  ph-porter validate --list",
+                      "",
+                  ].join("\n"),
+              );
+          }
       } catch (err) {
             context.log?.error(`Migration failed: ${(err as Error).message}`);
           throw err;
