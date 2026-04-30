@@ -8,3 +8,4 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
+batch-migrate-logs/

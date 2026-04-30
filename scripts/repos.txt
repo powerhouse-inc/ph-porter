@@ -1,0 +1,6 @@
+https://github.com/powerhouse-inc/chatroom-demo
+https://github.com/powerhouse-inc/vetra-cloud-package
+https://github.com/powerhouse-inc/vetra-builder-package
+https://github.com/powerhouse-inc/renown-package
+https://github.com/powerhouse-inc/contributor-billing
+https://github.com/powerhouse-inc/service-offering

@@ -22,7 +22,9 @@
     "lint": "eslint src",
     "mastra:dev": "mastra dev",
     "mastra:build": "mastra build",
-    "mastra:start": "mastra start"
+    "mastra:start": "mastra start",
+    "batch-migrate": "tsx scripts/batch-migrate.ts",
+    "batch-migrate:all": "tsx scripts/batch-migrate.ts scripts/repos.txt --concurrency 5 --keep-clones"
   },
   "dependencies": {
     "@mastra/core": "^1.22.0",
