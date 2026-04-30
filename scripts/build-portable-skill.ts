@@ -123,7 +123,6 @@ const bodySources: BodySource[] = [
   ),
 ];
 
-const intro = applyPlaceholders(readSource(SKILL_ONLY_DIR, 'intro.md'));
 const body = bodySources
   .map((s) => {
     if (s.kind === 'generated') return s.content;
@@ -131,7 +130,7 @@ const body = bodySources
   })
   .join('\n\n');
 
-const skillMd = [frontmatter, '', intro, '', body, ''].join('\n');
+const skillMd = [frontmatter, '', body, ''].join('\n');
 
 const outDir = path.join(PROJECT_ROOT, binaryName);
 fs.mkdirSync(outDir, { recursive: true });

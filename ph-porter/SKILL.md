@@ -7,10 +7,6 @@ metadata:
   version: "0.2.5"
 ---
 
-# ph-porter
-
-CLI for migrating Powerhouse Reactor projects between stack versions and surfacing/fixing the issues a migration leaves behind.
-
 ## Installation
 
 The npm package is `@powerhousedao/ph-porter`; the installed binary is `ph-porter`.
